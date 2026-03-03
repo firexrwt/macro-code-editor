@@ -1,0 +1,27 @@
+[package]
+name = "macro-editor"
+version = "0.1.0"
+edition = "2021"
+description = "A fast terminal text editor with integrated file tree"
+license = "MIT"
+authors = []
+
+[[bin]]
+name = "macro"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.29"
+crossterm = "0.28"
+# pure-rust syntect — no C deps, важно для COPR/Koji
+syntect = { version = "5", default-features = false, features = ["default-fancy"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+dirs = "5"
+anyhow = "1"
+
+[profile.release]
+opt-level = 3
+strip = true
+lto = true
+codegen-units = 1
