@@ -5,7 +5,7 @@ Summary:        Fast terminal text editor with integrated file tree
 
 License:        MIT
 URL:            https://github.com/firexrwt/macro-code-editor
-Source0:        %{name}-%{version}.tar.gz
+Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 
 BuildRequires:  rust
 BuildRequires:  cargo
@@ -19,7 +19,7 @@ languages, mouse support, and line numbers.
 Config file: ~/.config/macro/config.toml
 
 %prep
-%autosetup
+%setup -q -n macro-code-editor-%{version}
 
 %build
 cargo build --release
