@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Tabs},
     Frame,
 };
 
@@ -124,16 +124,8 @@ fn draw_tree_list(f: &mut Frame, area: Rect, app: &mut App) {
 
 fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
     let Some(idx) = app.active_editor else { return };
-
-    let filename = app.editors[idx].filename().to_string();
-    let modified = app.editors[idx].modified;
     let focused = matches!(app.focus, Focus::Editor);
 
-    let title = format!(
-        " {}{} ",
-        filename,
-        if modified { " ●" } else { "" }
-    );
     let border_style = if focused {
         Style::default().fg(Color::Cyan)
     } else {
@@ -141,21 +133,43 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
     };
 
     let block = Block::default()
-        .title(title)
         .borders(Borders::ALL)
         .border_style(border_style);
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    // Разбиваем inner на контент + статусбар
-    if inner.height < 2 {
+    if inner.height < 3 {
         return;
     }
-    let content_area = Rect { height: inner.height - 1, ..inner };
+
+    // ── Таббар ───────────────────────────────────────────────────────────────
+    let tabs_area = Rect { height: 1, ..inner };
+    let rest = Rect { y: inner.y + 1, height: inner.height - 1, ..inner };
+
+    let tab_titles: Vec<Line> = app.editors.iter().map(|ed| {
+        let label = if ed.modified {
+            format!(" {} ● ", ed.filename())
+        } else {
+            format!(" {} ", ed.filename())
+        };
+        Line::from(label)
+    }).collect();
+
+    let tabs = Tabs::new(tab_titles)
+        .select(idx)
+        .style(Style::default().fg(Color::DarkGray))
+        .highlight_style(
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        )
+        .divider("│");
+    f.render_widget(tabs, tabs_area);
+
+    // ── Разбиваем остаток на контент + статусбар ──────────────────────────────
+    let content_area = Rect { height: rest.height - 1, ..rest };
     let status_area = Rect {
-        y: inner.y + inner.height - 1,
+        y: rest.y + rest.height - 1,
         height: 1,
-        ..inner
+        ..rest
     };
 
     let line_num_w: u16 = if app.config.line_numbers { 5 } else { 0 };
@@ -248,9 +262,10 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
 
     // Статус-бар
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("txt");
+    let is_modified = app.editors[idx].modified;
     let status = format!(
         " {} | Ln {} Col {} | {} | {}",
-        if modified { "●" } else { "·" },
+        if is_modified { "●" } else { "·" },
         cursor.line + 1,
         cursor.col + 1,
         ext,

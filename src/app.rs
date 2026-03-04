@@ -245,13 +245,28 @@ impl App {
                         let _ = self.open_file(&path);
                     }
                 } else {
-                    // Клик в редактор
                     self.focus = Focus::Editor;
-                    if let Some(idx) = self.active_editor {
-                        let line_num_w: u16 = if self.config.line_numbers { 5 } else { 0 };
-                        let editor_x = x.saturating_sub(tree_w + 1 + line_num_w) as usize;
-                        let editor_y = (y as usize).saturating_sub(1); // рамка
-                        self.editors[idx].click(editor_x, editor_y);
+                    // y=1 (после рамки) — это строка таббара
+                    if y == 1 && self.editors.len() > 1 {
+                        // Определяем по какой вкладке кликнули
+                        let rel_x = x.saturating_sub(tree_w + 1) as usize;
+                        let mut offset = 0usize;
+                        for (i, ed) in self.editors.iter().enumerate() {
+                            let tab_w = ed.filename().len() + if ed.modified { 5 } else { 3 };
+                            if rel_x < offset + tab_w {
+                                self.active_editor = Some(i);
+                                break;
+                            }
+                            offset += tab_w + 1; // +1 для разделителя │
+                        }
+                    } else {
+                        // Клик в текст редактора
+                        if let Some(idx) = self.active_editor {
+                            let line_num_w: u16 = if self.config.line_numbers { 5 } else { 0 };
+                            let editor_x = x.saturating_sub(tree_w + 1 + line_num_w) as usize;
+                            let editor_y = (y as usize).saturating_sub(2); // рамка + таббар
+                            self.editors[idx].click(editor_x, editor_y);
+                        }
                     }
                 }
             }
@@ -289,6 +304,11 @@ impl App {
         if let Some(idx) = self.editors.iter().position(|e| e.path == path) {
             self.active_editor = Some(idx);
             self.focus = Focus::Editor;
+            return Ok(());
+        }
+
+        if self.editors.len() >= 3 {
+            self.status_msg = "Max 3 files open. Close one with Ctrl+Q first.".to_string();
             return Ok(());
         }
 

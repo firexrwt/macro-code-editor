@@ -1,5 +1,5 @@
 Name:           macro-editor
-Version:        0.1.0
+Version:        0.2.0
 Release:        1%{?dist}
 Summary:        Fast terminal text editor with integrated file tree
 
@@ -32,5 +32,9 @@ install -Dm755 target/release/macro %{buildroot}%{_bindir}/macro
 %{_bindir}/macro
 
 %changelog
+* Wed Mar 04 2026 firexrwt <opensource@firexrwt.com> - 0.2.0-1
+- Add tabs: open up to 3 files simultaneously
+- Mouse click to switch tabs
+
 * Tue Mar 03 2026 firexrwt <opensource@firexrwt.com> - 0.1.0-1
 - Initial release
