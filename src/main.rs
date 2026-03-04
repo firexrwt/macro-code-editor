@@ -3,6 +3,7 @@ mod config;
 mod editor;
 mod file_tree;
 mod highlight;
+mod lsp;
 mod ui;
 
 use std::path::PathBuf;
@@ -35,7 +36,8 @@ Keybindings:
   Ctrl+C / Ctrl+X  Copy / Cut selection
   Ctrl+V           Paste
   Ctrl+A           Select all
-  Tab              Switch focus between file tree and editor
+  Tab              Autocomplete (LSP) / insert indent
+  Esc (editor)     Switch focus to file tree
   Enter (tree)     Open file / expand directory
   Mouse            Click to navigate, scroll wheel to scroll
 

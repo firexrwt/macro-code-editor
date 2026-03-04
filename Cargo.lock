@@ -393,13 +393,14 @@ dependencies = [
 
 [[package]]
 name = "macro-editor"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "crossterm",
  "dirs",
  "ratatui",
  "serde",
+ "serde_json",
  "syntect",
  "toml",
 ]

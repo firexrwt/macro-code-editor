@@ -2,7 +2,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Tabs},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Tabs},
     Frame,
 };
 
@@ -197,11 +197,17 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
         .cloned()
         .collect();
 
-    // Подсветка всего файла за один проход (сохраняем состояние парсера)
-    // Оптимизация: подсвечиваем только видимые строки + немного выше для контекста
+    // Подсветка: пересчитываем только когда контент изменился, иначе берём кеш
     let highlight_start = scroll_line;
-    let all_lines = &app.editors[idx].lines;
-    let highlighted = app.highlighter.highlight_file(all_lines, &path);
+    if app.editors[idx].highlight_dirty {
+        let h = app.highlighter.highlight_file(&app.editors[idx].lines, &path);
+        app.highlight_caches.insert(idx, h);
+        app.editors[idx].highlight_dirty = false;
+    }
+    let highlighted = match app.highlight_caches.get(&idx) {
+        Some(h) => h,
+        None => return,
+    };
 
     // Получаем выделение для рендеринга
     let selection = app.editors[idx].selection.clone();
@@ -250,14 +256,19 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
     }
 
     // Позиция курсора в терминале
+    let cur_x = text_area.x + cursor.col.saturating_sub(scroll_col) as u16;
+    let cur_y = content_area.y + cursor.line.saturating_sub(scroll_line) as u16;
     if focused {
-        let cur_x = text_area.x + cursor.col.saturating_sub(scroll_col) as u16;
-        let cur_y = content_area.y + cursor.line.saturating_sub(scroll_line) as u16;
         if cur_x < text_area.x + text_w
             && cur_y < content_area.y + content_area.height
         {
             f.set_cursor_position((cur_x, cur_y));
         }
+    }
+
+    // Completion popup
+    if focused {
+        render_completion_popup(f, app, cur_x, cur_y, area);
     }
 
     // Статус-бар
@@ -276,6 +287,63 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
     f.render_widget(status_widget, status_area);
 }
 
+// ── Completion popup ──────────────────────────────────────────────────────────
+
+fn render_completion_popup(f: &mut Frame, app: &App, cur_x: u16, cur_y: u16, screen: Rect) {
+    let Some(comp) = &app.completion else { return };
+    if comp.filtered.is_empty() { return }
+
+    let count = comp.filtered.len().min(8) as u16;
+    let max_w = comp.filtered.iter().map(|i| i.label.len()).max().unwrap_or(4) as u16;
+    let popup_w = (max_w + 2).min(40).max(10);
+    let popup_h = count + 2; // borders
+
+    // Position below cursor; flip up if near bottom
+    let popup_y = if cur_y + 1 + popup_h <= screen.bottom() {
+        cur_y + 1
+    } else {
+        cur_y.saturating_sub(popup_h)
+    };
+    let popup_x = cur_x.min(screen.right().saturating_sub(popup_w));
+
+    let popup_rect = Rect {
+        x: popup_x,
+        y: popup_y,
+        width: popup_w,
+        height: popup_h,
+    };
+
+    let selected = comp.selected.min(comp.filtered.len().saturating_sub(1));
+    let items: Vec<ListItem> = comp
+        .filtered
+        .iter()
+        .take(8)
+        .enumerate()
+        .map(|(i, item)| {
+            let style = if i == selected {
+                Style::default()
+                    .bg(Color::Blue)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().bg(Color::DarkGray).fg(Color::White)
+            };
+            ListItem::new(item.label.clone()).style(style)
+        })
+        .collect();
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Green))
+        .style(Style::default().bg(Color::DarkGray));
+
+    let inner = block.inner(popup_rect);
+
+    f.render_widget(Clear, popup_rect);
+    f.render_widget(block, popup_rect);
+    f.render_widget(List::new(items), inner);
+}
+
 // ── Построение строки с подсветкой ───────────────────────────────────────────
 
 fn build_highlighted_line<'a>(
@@ -286,50 +354,59 @@ fn build_highlighted_line<'a>(
     abs_line: usize,
     selection: &Option<crate::editor::Selection>,
 ) -> Line<'a> {
-    // Собираем плоский список (col, char, fg_color)
-    let mut chars: Vec<(usize, char, ratatui::style::Color)> = Vec::new();
-    let mut col = 0usize;
-    for (style, text) in spans {
-        let fg = to_ratatui_color(style.foreground);
-        for c in text.chars() {
-            chars.push((col, c, fg));
-            col += 1;
-        }
-    }
-
-    // Определяем диапазон выделения на этой строке
+    // Determine selection range on this line
     let sel_range: Option<(usize, usize)> = selection.as_ref().and_then(|sel| {
         let (start, end) = sel.normalized();
         if abs_line < start.line || abs_line > end.line {
             return None;
         }
         let s = if abs_line == start.line { start.col } else { 0 };
-        let e = if abs_line == end.line {
-            end.col
-        } else {
-            usize::MAX
-        };
+        let e = if abs_line == end.line { end.col } else { usize::MAX };
         Some((s, e))
     });
 
-    // Берём только видимые колонки и строим Span-ы
+    // Build merged spans: group consecutive chars that share the same ratatui Style
     let mut result: Vec<Span<'static>> = Vec::new();
-    let visible: Vec<_> = chars
-        .iter()
-        .filter(|(c, _, _)| *c >= scroll_col && *c < scroll_col + view_cols)
-        .collect();
+    let mut current_style: Option<Style> = None;
+    let mut current_text = String::new();
+    let mut col = 0usize;
 
-    for (col_idx, ch, fg) in visible {
-        let selected = sel_range
-            .map(|(s, e)| *col_idx >= s && *col_idx < e)
-            .unwrap_or(false);
+    for (hi_style, text) in spans {
+        let fg = to_ratatui_color(hi_style.foreground);
+        for ch in text.chars() {
+            if col >= scroll_col && col < scroll_col + view_cols {
+                let selected = sel_range.map(|(s, e)| col >= s && col < e).unwrap_or(false);
+                let style = if selected {
+                    Style::default().bg(Color::LightBlue).fg(Color::Black)
+                } else {
+                    Style::default().fg(fg)
+                };
 
-        let style = if selected {
-            Style::default().bg(Color::LightBlue).fg(Color::Black)
-        } else {
-            Style::default().fg(*fg)
-        };
-        result.push(Span::styled(ch.to_string(), style));
+                if Some(style) == current_style {
+                    current_text.push(ch);
+                } else {
+                    if !current_text.is_empty() {
+                        result.push(Span::styled(
+                            current_text.clone(),
+                            current_style.unwrap(),
+                        ));
+                        current_text.clear();
+                    }
+                    current_style = Some(style);
+                    current_text.push(ch);
+                }
+            }
+            col += 1;
+            if col >= scroll_col + view_cols {
+                break;
+            }
+        }
+        if col >= scroll_col + view_cols {
+            break;
+        }
+    }
+    if !current_text.is_empty() {
+        result.push(Span::styled(current_text, current_style.unwrap()));
     }
 
     Line::from(result)

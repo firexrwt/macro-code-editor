@@ -39,6 +39,8 @@ pub struct Editor {
     pub selection: Option<Selection>,
     pub modified: bool,
     pub clipboard: Option<String>,
+    /// Set to true whenever content changes; cleared after highlight recompute.
+    pub highlight_dirty: bool,
 }
 
 impl Editor {
@@ -54,6 +56,7 @@ impl Editor {
             selection: None,
             modified: false,
             clipboard: None,
+            highlight_dirty: true,
         }
     }
 
@@ -70,6 +73,7 @@ impl Editor {
             selection: None,
             modified: false,
             clipboard: None,
+            highlight_dirty: true,
         })
     }
 
@@ -120,6 +124,7 @@ impl Editor {
         self.lines[self.cursor.line].insert(byte, c);
         self.cursor.col += 1;
         self.modified = true;
+        self.highlight_dirty = true;
     }
 
     pub fn insert_newline(&mut self) {
@@ -133,6 +138,7 @@ impl Editor {
         self.cursor.line += 1;
         self.cursor.col = 0;
         self.modified = true;
+        self.highlight_dirty = true;
     }
 
     pub fn insert_tab(&mut self, tab_size: usize) {
@@ -153,6 +159,7 @@ impl Editor {
             let byte = self.char_to_byte(self.cursor.line, self.cursor.col);
             self.lines[self.cursor.line].remove(byte);
             self.modified = true;
+            self.highlight_dirty = true;
         } else if self.cursor.line > 0 {
             let current = self.lines.remove(self.cursor.line);
             self.cursor.line -= 1;
@@ -160,6 +167,7 @@ impl Editor {
             self.lines[self.cursor.line].push_str(&current);
             self.cursor.col = prev_len;
             self.modified = true;
+            self.highlight_dirty = true;
         }
     }
 
@@ -173,10 +181,12 @@ impl Editor {
             let byte = self.char_to_byte(self.cursor.line, self.cursor.col);
             self.lines[self.cursor.line].remove(byte);
             self.modified = true;
+            self.highlight_dirty = true;
         } else if self.cursor.line + 1 < self.lines.len() {
             let next = self.lines.remove(self.cursor.line + 1);
             self.lines[self.cursor.line].push_str(&next);
             self.modified = true;
+            self.highlight_dirty = true;
         }
     }
 
@@ -363,6 +373,7 @@ impl Editor {
         }
         self.cursor = start;
         self.modified = true;
+        self.highlight_dirty = true;
     }
 
     // ── Прокрутка ────────────────────────────────────────────────────────────
@@ -380,6 +391,33 @@ impl Editor {
         if self.cursor.col >= self.scroll.col + view_cols {
             self.scroll.col = self.cursor.col.saturating_sub(view_cols.saturating_sub(1));
         }
+    }
+
+    /// Column where the current word starts (alphanumeric / underscore chars before cursor).
+    pub fn word_start_col(&self) -> usize {
+        let chars: Vec<char> = self.lines[self.cursor.line].chars().collect();
+        let mut col = self.cursor.col;
+        while col > 0 && (chars[col - 1].is_alphanumeric() || chars[col - 1] == '_') {
+            col -= 1;
+        }
+        col
+    }
+
+    /// Replace text from `from_col` to current cursor col on the same line, then insert `new_text`.
+    pub fn replace_word(&mut self, from_col: usize, new_text: &str) {
+        let line = &self.lines[self.cursor.line];
+        let char_indices: Vec<(usize, char)> = line.char_indices().collect();
+        let from_byte = char_indices.get(from_col).map(|(b, _)| *b).unwrap_or(line.len());
+        let to_byte = char_indices
+            .get(self.cursor.col)
+            .map(|(b, _)| *b)
+            .unwrap_or(line.len());
+        let before = line[..from_byte].to_string();
+        let after = line[to_byte..].to_string();
+        self.lines[self.cursor.line] = format!("{}{}{}", before, new_text, after);
+        self.cursor.col = from_col + new_text.chars().count();
+        self.modified = true;
+        self.highlight_dirty = true;
     }
 
     /// Установить курсор по клику мышью (с учётом scroll)

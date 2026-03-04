@@ -8,7 +8,12 @@ pub struct Config {
     pub tab_size: usize,
     pub line_numbers: bool,
     pub tree_width: u16,
+    /// Show LSP completions automatically while typing. Default: true.
+    #[serde(default = "default_true")]
+    pub auto_complete: bool,
 }
+
+fn default_true() -> bool { true }
 
 impl Default for Config {
     fn default() -> Self {
@@ -17,6 +22,7 @@ impl Default for Config {
             tab_size: 4,
             line_numbers: true,
             tree_width: 30,
+            auto_complete: true,
         }
     }
 }
