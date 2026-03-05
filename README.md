@@ -21,6 +21,7 @@ macro [PATH]
 - `macro` — open current directory as file tree
 - `macro /path/to/file` — open file in editor
 - `macro /path/to/dir` — open directory as file tree root
+- `macro src/new/file.rs` — create missing directories and file, then open it
 - `macro --help` — show help
 - `macro --version` — print version
 
@@ -41,6 +42,7 @@ macro [PATH]
 | `Shift+Arrow` | Extend selection |
 | `Home` / `End` | Move to start / end of line |
 | `Page Up/Down` | Scroll by 20 lines |
+| `Ctrl+N` (tree) | Create new file — type path, Enter to confirm |
 | `Enter` (tree) | Open file / expand-collapse directory |
 | Mouse click (tab bar) | Switch between open files |
 

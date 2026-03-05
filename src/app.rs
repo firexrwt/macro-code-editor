@@ -52,6 +52,8 @@ pub struct App {
     pub completion: Option<CompletionState>,
     pub pending_completion_id: Option<i64>,
     doc_versions: HashMap<PathBuf, i64>,
+    // ── New file input popup ──────────────────────────────────────────────────
+    pub creating_file: Option<String>,
 }
 
 impl App {
@@ -86,10 +88,21 @@ impl App {
             completion: None,
             pending_completion_id: None,
             doc_versions: HashMap::new(),
+            creating_file: None,
         };
 
         if path.is_file() {
             let _ = app.open_file(&path);
+        } else if !path.exists() && path.extension().is_some() {
+            // CLI: macro some/dir/file.ext — create dirs+file then open
+            if let Some(parent) = path.parent() {
+                if !parent.exists() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+            }
+            if std::fs::File::create(&path).is_ok() {
+                let _ = app.open_file(&path);
+            }
         }
 
         Ok(app)
@@ -148,6 +161,12 @@ impl App {
         use KeyCode::*;
         use KeyModifiers as Km;
 
+        // Creating-file popup captures all keys
+        if self.creating_file.is_some() {
+            self.handle_create_input(key);
+            return;
+        }
+
         let ctrl = key.modifiers.contains(Km::CONTROL);
         let shift = key.modifiers.contains(Km::SHIFT);
 
@@ -192,6 +211,7 @@ impl App {
     }
 
     fn handle_tree_key(&mut self, key: event::KeyEvent) {
+        use KeyModifiers as Km;
         match key.code {
             KeyCode::Up => self.file_tree.move_up(),
             KeyCode::Down => self.file_tree.move_down(),
@@ -200,8 +220,65 @@ impl App {
                     let _ = self.open_file(&path);
                 }
             }
+            KeyCode::Char('n') if key.modifiers.contains(Km::CONTROL) => {
+                self.creating_file = Some(String::new());
+            }
             _ => {}
         }
+    }
+
+    fn handle_create_input(&mut self, key: event::KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.creating_file = None;
+            }
+            KeyCode::Enter => {
+                if let Some(input) = self.creating_file.take() {
+                    self.execute_create_file(&input);
+                }
+            }
+            KeyCode::Backspace => {
+                if let Some(ref mut s) = self.creating_file {
+                    s.pop();
+                }
+            }
+            KeyCode::Char(c) => {
+                if let Some(ref mut s) = self.creating_file {
+                    s.push(c);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn execute_create_file(&mut self, input: &str) {
+        let input = input.trim();
+        if input.is_empty() { return; }
+
+        let path = if std::path::Path::new(input).is_absolute() {
+            PathBuf::from(input)
+        } else {
+            self.file_tree.root.join(input)
+        };
+
+        if let Some(parent) = path.parent() {
+            if !parent.exists() {
+                if let Err(e) = std::fs::create_dir_all(parent) {
+                    self.status_msg = format!("Error creating dirs: {e}");
+                    return;
+                }
+            }
+        }
+
+        if !path.exists() {
+            if let Err(e) = std::fs::File::create(&path) {
+                self.status_msg = format!("Error creating file: {e}");
+                return;
+            }
+        }
+
+        self.file_tree.refresh();
+        let _ = self.open_file(&path);
     }
 
     fn handle_editor_key(&mut self, key: event::KeyEvent) {

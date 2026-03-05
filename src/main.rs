@@ -21,9 +21,10 @@ Usage:
 
 Arguments:
   PATH    File or directory to open.
-          File   → opens it in editor with file tree rooted at its parent.
-          Dir    → opens the directory as the file tree root.
-          (none) → opens the current working directory.
+          File        → opens it in editor with file tree rooted at its parent.
+          Dir         → opens the directory as the file tree root.
+          New path    → creates missing dirs and file, then opens it.
+          (none)      → opens the current working directory.
 
 Options:
   -h, --help       Print this help message and exit.
@@ -38,6 +39,7 @@ Keybindings:
   Ctrl+A           Select all
   Tab              Autocomplete (LSP) / insert indent
   Esc (editor)     Switch focus to file tree
+  Ctrl+N (tree)    Create new file (type path, Enter to confirm)
   Enter (tree)     Open file / expand directory
   Mouse            Click to navigate, scroll wheel to scroll
 

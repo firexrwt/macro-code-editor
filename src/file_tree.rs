@@ -79,6 +79,11 @@ impl FileTree {
         }
     }
 
+    /// Public refresh that preserves expanded state (call after creating files/dirs)
+    pub fn refresh(&mut self) {
+        self.rebuild_keeping_state();
+    }
+
     fn rebuild(&mut self) {
         self.entries.clear();
         collect_dir(&self.root, 0, &mut self.entries);

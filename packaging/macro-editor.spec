@@ -32,6 +32,10 @@ install -Dm755 target/release/macro %{buildroot}%{_bindir}/macro
 %{_bindir}/macro
 
 %changelog
+* Thu Mar 05 2026 firexrwt <opensource@firexrwt.com> - 0.3.0-1
+- Create files and directories from CLI: macro path/to/file.ext
+- Ctrl+N in file tree opens new file prompt
+
 * Wed Mar 04 2026 firexrwt <opensource@firexrwt.com> - 0.2.1-1
 - Tab key now inserts indent (no longer switches focus)
 - Esc in editor switches focus to file tree

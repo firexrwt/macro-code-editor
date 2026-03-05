@@ -26,6 +26,10 @@ pub fn render(f: &mut Frame, app: &mut App) {
         render_tree_panel(f, chunks[0], app);
         render_editor_panel(f, chunks[1], app);
     }
+
+    if app.creating_file.is_some() {
+        render_create_file_popup(f, app, area);
+    }
 }
 
 // ── Дерево файлов ─────────────────────────────────────────────────────────────
@@ -285,6 +289,46 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
     let status_widget = Paragraph::new(status)
         .style(Style::default().bg(Color::DarkGray).fg(Color::White));
     f.render_widget(status_widget, status_area);
+}
+
+// ── Create file popup ─────────────────────────────────────────────────────────
+
+fn render_create_file_popup(f: &mut Frame, app: &App, screen: Rect) {
+    let input = match &app.creating_file {
+        Some(s) => s,
+        None => return,
+    };
+
+    let popup_w = 50u16.min(screen.width.saturating_sub(4));
+    let popup_h = 5u16;
+    let popup_x = screen.x + (screen.width.saturating_sub(popup_w)) / 2;
+    let popup_y = screen.y + (screen.height.saturating_sub(popup_h)) / 2;
+    let popup_rect = Rect { x: popup_x, y: popup_y, width: popup_w, height: popup_h };
+
+    let block = Block::default()
+        .title(" New file (Enter to create, Esc to cancel) ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Yellow))
+        .style(Style::default().bg(Color::DarkGray));
+    let inner = block.inner(popup_rect);
+
+    f.render_widget(Clear, popup_rect);
+    f.render_widget(block, popup_rect);
+
+    // Hint line
+    let hint_area = Rect { y: inner.y + inner.height.saturating_sub(1), height: 1, ..inner };
+    let input_area = Rect { height: 1, ..inner };
+
+    let display = format!("{}_", input); // underscore as cursor
+    f.render_widget(
+        Paragraph::new(display).style(Style::default().fg(Color::White)),
+        input_area,
+    );
+    f.render_widget(
+        Paragraph::new("  relative path from project root, e.g. src/foo.rs")
+            .style(Style::default().fg(Color::DarkGray)),
+        hint_area,
+    );
 }
 
 // ── Completion popup ──────────────────────────────────────────────────────────
