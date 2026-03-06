@@ -39,8 +39,8 @@ pub struct Editor {
     pub selection: Option<Selection>,
     pub modified: bool,
     pub clipboard: Option<String>,
-    /// Set to true whenever content changes; cleared after highlight recompute.
-    pub highlight_dirty: bool,
+    /// First line that needs re-highlighting. None = cache is clean.
+    pub dirty_from_line: Option<usize>,
 }
 
 impl Editor {
@@ -56,7 +56,7 @@ impl Editor {
             selection: None,
             modified: false,
             clipboard: None,
-            highlight_dirty: true,
+            dirty_from_line: Some(0),
         }
     }
 
@@ -73,7 +73,7 @@ impl Editor {
             selection: None,
             modified: false,
             clipboard: None,
-            highlight_dirty: true,
+            dirty_from_line: Some(0),
         })
     }
 
@@ -114,6 +114,13 @@ impl Editor {
         col.min(self.line_char_count(line))
     }
 
+    fn mark_dirty(&mut self, line: usize) {
+        self.dirty_from_line = Some(match self.dirty_from_line {
+            Some(existing) => existing.min(line),
+            None => line,
+        });
+    }
+
     // ── Ввод текста ──────────────────────────────────────────────────────────
 
     pub fn insert_char(&mut self, c: char) {
@@ -124,7 +131,7 @@ impl Editor {
         self.lines[self.cursor.line].insert(byte, c);
         self.cursor.col += 1;
         self.modified = true;
-        self.highlight_dirty = true;
+        self.mark_dirty(self.cursor.line);
     }
 
     pub fn insert_newline(&mut self) {
@@ -135,16 +142,21 @@ impl Editor {
         let rest = self.lines[self.cursor.line][byte..].to_string();
         self.lines[self.cursor.line].truncate(byte);
         self.lines.insert(self.cursor.line + 1, rest);
+        let dirty_line = self.cursor.line;
         self.cursor.line += 1;
         self.cursor.col = 0;
         self.modified = true;
-        self.highlight_dirty = true;
+        self.mark_dirty(dirty_line);
     }
 
     pub fn insert_tab(&mut self, tab_size: usize) {
+        self.mark_dirty(self.cursor.line);
         for _ in 0..tab_size {
-            self.insert_char(' ');
+            let byte = self.char_to_byte(self.cursor.line, self.cursor.col);
+            self.lines[self.cursor.line].insert(byte, ' ');
+            self.cursor.col += 1;
         }
+        self.modified = true;
     }
 
     // ── Удаление ─────────────────────────────────────────────────────────────
@@ -159,7 +171,7 @@ impl Editor {
             let byte = self.char_to_byte(self.cursor.line, self.cursor.col);
             self.lines[self.cursor.line].remove(byte);
             self.modified = true;
-            self.highlight_dirty = true;
+            self.mark_dirty(self.cursor.line);
         } else if self.cursor.line > 0 {
             let current = self.lines.remove(self.cursor.line);
             self.cursor.line -= 1;
@@ -167,7 +179,7 @@ impl Editor {
             self.lines[self.cursor.line].push_str(&current);
             self.cursor.col = prev_len;
             self.modified = true;
-            self.highlight_dirty = true;
+            self.mark_dirty(self.cursor.line);
         }
     }
 
@@ -181,12 +193,12 @@ impl Editor {
             let byte = self.char_to_byte(self.cursor.line, self.cursor.col);
             self.lines[self.cursor.line].remove(byte);
             self.modified = true;
-            self.highlight_dirty = true;
+            self.mark_dirty(self.cursor.line);
         } else if self.cursor.line + 1 < self.lines.len() {
             let next = self.lines.remove(self.cursor.line + 1);
             self.lines[self.cursor.line].push_str(&next);
             self.modified = true;
-            self.highlight_dirty = true;
+            self.mark_dirty(self.cursor.line);
         }
     }
 
@@ -373,7 +385,7 @@ impl Editor {
         }
         self.cursor = start;
         self.modified = true;
-        self.highlight_dirty = true;
+        self.mark_dirty(start.line);
     }
 
     // ── Прокрутка ────────────────────────────────────────────────────────────
@@ -417,7 +429,7 @@ impl Editor {
         self.lines[self.cursor.line] = format!("{}{}{}", before, new_text, after);
         self.cursor.col = from_col + new_text.chars().count();
         self.modified = true;
-        self.highlight_dirty = true;
+        self.mark_dirty(self.cursor.line);
     }
 
     /// Установить курсор по клику мышью (с учётом scroll)
@@ -649,6 +661,37 @@ mod tests {
         e.cut();
         assert_eq!(e.lines.len(), 1);
         assert_eq!(e.lines[0], "");
+    }
+
+    // ── dirty_from_line ───────────────────────────────────────────────────────
+
+    #[test]
+    fn dirty_from_line_tracks_minimum() {
+        let mut e = ed("a\nb\nc");
+        e.dirty_from_line = None;
+        e.cursor = Pos::new(2, 0);
+        e.insert_char('x');
+        assert_eq!(e.dirty_from_line, Some(2));
+        e.cursor = Pos::new(1, 0);
+        e.insert_char('y');
+        assert_eq!(e.dirty_from_line, Some(1));
+    }
+
+    #[test]
+    fn insert_newline_marks_dirty_at_current_line() {
+        let mut e = ed("hello world");
+        e.cursor.col = 5;
+        e.insert_newline();
+        assert_eq!(e.dirty_from_line, Some(0));
+    }
+
+    #[test]
+    fn backspace_join_marks_dirty_at_joined_line() {
+        let mut e = ed("foo\nbar");
+        e.cursor = Pos::new(1, 0);
+        e.dirty_from_line = None;
+        e.backspace();
+        assert_eq!(e.dirty_from_line, Some(0));
     }
 
     // ── Флаг modified ─────────────────────────────────────────────────────────
