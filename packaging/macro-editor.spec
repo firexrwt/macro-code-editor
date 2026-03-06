@@ -1,5 +1,5 @@
 Name:           macro-editor
-Version:        0.3.0
+Version:        0.3.1
 Release:        1%{?dist}
 Summary:        Fast terminal text editor with integrated file tree
 
@@ -32,6 +32,10 @@ install -Dm755 target/release/macro %{buildroot}%{_bindir}/macro
 %{_bindir}/macro
 
 %changelog
+* Thu Mar 06 2026 firexrwt <opensource@firexrwt.com> - 0.3.1-1
+- Incremental syntax highlighting: recompute only from the edited line
+- Fix: inserting and deleting lines now correctly updates the highlight cache
+
 * Thu Mar 05 2026 firexrwt <opensource@firexrwt.com> - 0.3.0-1
 - Create files and directories from CLI: macro path/to/file.ext
 - Ctrl+N in file tree opens new file prompt

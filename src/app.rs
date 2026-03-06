@@ -15,7 +15,7 @@ use ratatui::{backend::CrosstermBackend, Terminal};
 use crate::config::Config;
 use crate::editor::Editor;
 use crate::file_tree::FileTree;
-use crate::highlight::Highlighter;
+use crate::highlight::{HighlightCache, Highlighter};
 use crate::lsp::{file_uri, language_id, CompletionItem, LspClient};
 use crate::ui;
 
@@ -45,8 +45,8 @@ pub struct App {
     pub should_quit: bool,
     /// Ожидаем второй Ctrl+Q для force-close несохранённого файла
     pub pending_force_close: bool,
-    // ── Highlight cache (per editor index) ───────────────────────────────────
-    pub highlight_caches: HashMap<usize, Vec<Vec<(syntect::highlighting::Style, String)>>>,
+    // ── Highlight cache (per file path) ──────────────────────────────────────
+    pub highlight_caches: HashMap<PathBuf, HighlightCache>,
     // ── LSP ──────────────────────────────────────────────────────────────────
     pub lsp_clients: HashMap<String, LspClient>,
     pub completion: Option<CompletionState>,
@@ -508,8 +508,9 @@ impl App {
 
     fn close_editor(&mut self) {
         if let Some(idx) = self.active_editor {
+            let path = self.editors[idx].path.clone();
             self.editors.remove(idx);
-            self.highlight_caches.clear(); // indices shift after remove
+            self.highlight_caches.remove(&path);
             if self.editors.is_empty() {
                 self.active_editor = None;
                 self.focus = Focus::Tree;

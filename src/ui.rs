@@ -201,17 +201,18 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
         .cloned()
         .collect();
 
-    // Подсветка: пересчитываем только когда контент изменился, иначе берём кеш
-    let highlight_start = scroll_line;
-    if app.editors[idx].highlight_dirty {
-        let h = app.highlighter.highlight_file(&app.editors[idx].lines, &path);
-        app.highlight_caches.insert(idx, h);
-        app.editors[idx].highlight_dirty = false;
+    // Подсветка: инкрементальный пересчёт начиная с dirty_from_line
+    if let Some(from) = app.editors[idx].dirty_from_line.take() {
+        let cache = app.highlight_caches
+            .entry(path.clone())
+            .or_insert_with(|| app.highlighter.new_cache(&path));
+        app.highlighter.highlight_from(&app.editors[idx].lines, from, cache);
     }
-    let highlighted = match app.highlight_caches.get(&idx) {
+    let highlighted = match app.highlight_caches.get(&path) {
         Some(h) => h,
         None => return,
     };
+    let highlight_start = scroll_line;
 
     // Получаем выделение для рендеринга
     let selection = app.editors[idx].selection.clone();
@@ -219,7 +220,7 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
     // Рендерим строки
     for (vis_i, (line_str, hi_spans)) in visible_lines
         .iter()
-        .zip(highlighted.iter().skip(highlight_start))
+        .zip(highlighted.spans.iter().skip(highlight_start))
         .enumerate()
     {
         let abs_line = scroll_line + vis_i;
