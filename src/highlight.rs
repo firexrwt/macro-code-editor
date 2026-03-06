@@ -81,22 +81,22 @@ impl Highlighter {
             .expect("no themes loaded");
         let h = SyntectHighlighter::new(theme);
 
-        // Resume from the state just before from_line.
-        // Fall back to the initial state if the cache is empty or too short.
-        let (mut parse_state, mut highlight_state) =
-            if from_line == 0
-                || from_line - 1 >= cache.parse_states.len()
-                || from_line - 1 >= cache.highlight_states.len()
-            {
-                (cache.initial_parse.clone(), cache.initial_highlight.clone())
-            } else {
-                (
-                    cache.parse_states[from_line - 1].clone(),
-                    cache.highlight_states[from_line - 1].clone(),
-                )
-            };
+        // Clamp resume point to the last populated cache boundary.
+        // If from_line is past the cache, we rewind to the last known good state
+        // so that multiline scopes crossing the gap are parsed with correct context.
+        let resume_line = from_line
+            .min(cache.parse_states.len())
+            .min(cache.highlight_states.len());
+        let (mut parse_state, mut highlight_state) = if resume_line == 0 {
+            (cache.initial_parse.clone(), cache.initial_highlight.clone())
+        } else {
+            (
+                cache.parse_states[resume_line - 1].clone(),
+                cache.highlight_states[resume_line - 1].clone(),
+            )
+        };
 
-        for i in from_line..lines.len() {
+        for i in resume_line..lines.len() {
             let line_nl = format!("{}\n", lines[i]);
             let ops = parse_state
                 .parse_line(&line_nl, &self.ss)
