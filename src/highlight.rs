@@ -81,15 +81,20 @@ impl Highlighter {
             .expect("no themes loaded");
         let h = SyntectHighlighter::new(theme);
 
-        // Resume from the state just before from_line
-        let (mut parse_state, mut highlight_state) = if from_line == 0 {
-            (cache.initial_parse.clone(), cache.initial_highlight.clone())
-        } else {
-            (
-                cache.parse_states[from_line - 1].clone(),
-                cache.highlight_states[from_line - 1].clone(),
-            )
-        };
+        // Resume from the state just before from_line.
+        // Fall back to the initial state if the cache is empty or too short.
+        let (mut parse_state, mut highlight_state) =
+            if from_line == 0
+                || from_line - 1 >= cache.parse_states.len()
+                || from_line - 1 >= cache.highlight_states.len()
+            {
+                (cache.initial_parse.clone(), cache.initial_highlight.clone())
+            } else {
+                (
+                    cache.parse_states[from_line - 1].clone(),
+                    cache.highlight_states[from_line - 1].clone(),
+                )
+            };
 
         for i in from_line..lines.len() {
             let line_nl = format!("{}\n", lines[i]);
