@@ -201,7 +201,11 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
         .cloned()
         .collect();
 
-    // Подсветка: инкрементальный пересчёт начиная с dirty_from_line
+    // Подсветка: инкрементальный пересчёт начиная с dirty_from_line.
+    // Note: dirty_from_line is taken before highlight_from. If highlight_from
+    // were to panic, the marker would be lost and subsequent frames would not
+    // re-highlight. In practice the only panic path is "no themes loaded" which
+    // cannot happen after successful initialisation.
     if let Some(from) = app.editors[idx].dirty_from_line.take() {
         let cache = app.highlight_caches
             .entry(path.clone())
@@ -212,6 +216,12 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
         Some(h) => h,
         None => return,
     };
+    // Cache must cover at least scroll_line lines; zip will silently drop
+    // visible lines if the cache is shorter (should not happen in normal flow).
+    debug_assert!(
+        highlighted.spans.len() >= scroll_line || highlighted.spans.is_empty(),
+        "highlight cache shorter than scroll_line"
+    );
     let highlight_start = scroll_line;
 
     // Получаем выделение для рендеринга

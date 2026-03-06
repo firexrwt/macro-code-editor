@@ -150,9 +150,13 @@ impl Editor {
     }
 
     pub fn insert_tab(&mut self, tab_size: usize) {
+        self.mark_dirty(self.cursor.line);
         for _ in 0..tab_size {
-            self.insert_char(' ');
+            let byte = self.char_to_byte(self.cursor.line, self.cursor.col);
+            self.lines[self.cursor.line].insert(byte, ' ');
+            self.cursor.col += 1;
         }
+        self.modified = true;
     }
 
     // ── Удаление ─────────────────────────────────────────────────────────────
@@ -657,6 +661,37 @@ mod tests {
         e.cut();
         assert_eq!(e.lines.len(), 1);
         assert_eq!(e.lines[0], "");
+    }
+
+    // ── dirty_from_line ───────────────────────────────────────────────────────
+
+    #[test]
+    fn dirty_from_line_tracks_minimum() {
+        let mut e = ed("a\nb\nc");
+        e.dirty_from_line = None;
+        e.cursor = Pos::new(2, 0);
+        e.insert_char('x');
+        assert_eq!(e.dirty_from_line, Some(2));
+        e.cursor = Pos::new(1, 0);
+        e.insert_char('y');
+        assert_eq!(e.dirty_from_line, Some(1));
+    }
+
+    #[test]
+    fn insert_newline_marks_dirty_at_current_line() {
+        let mut e = ed("hello world");
+        e.cursor.col = 5;
+        e.insert_newline();
+        assert_eq!(e.dirty_from_line, Some(0));
+    }
+
+    #[test]
+    fn backspace_join_marks_dirty_at_joined_line() {
+        let mut e = ed("foo\nbar");
+        e.cursor = Pos::new(1, 0);
+        e.dirty_from_line = None;
+        e.backspace();
+        assert_eq!(e.dirty_from_line, Some(0));
     }
 
     // ── Флаг modified ─────────────────────────────────────────────────────────

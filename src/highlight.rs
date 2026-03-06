@@ -119,14 +119,17 @@ impl Highlighter {
 
             // Early exit: if no lines were inserted/deleted and the parse state
             // after this line matches the cached one, the rest is unaffected.
+            // We compare only ParseState because syntect's HighlightState is
+            // deterministic given ParseState — equal parse states always produce
+            // equal highlight states, so checking one is sufficient.
             if line_count_unchanged
                 && i < cache.parse_states.len()
                 && new_parse == cache.parse_states[i]
             {
-                // Truncate to current line count (handles line deletions)
-                cache.spans.truncate(lines.len());
-                cache.parse_states.truncate(lines.len());
-                cache.highlight_states.truncate(lines.len());
+                // Parse state converged; rest of file is unaffected.
+                // highlight_states[i] is intentionally not updated here: it is
+                // already correct because HighlightState is deterministic from
+                // ParseState (same parse state ⟹ same highlight state).
                 return;
             }
 
