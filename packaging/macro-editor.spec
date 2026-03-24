@@ -1,5 +1,5 @@
 Name:           macro-editor
-Version:        0.3.1
+Version:        0.3.2
 Release:        1%{?dist}
 Summary:        Fast terminal text editor with integrated file tree
 
@@ -32,6 +32,16 @@ install -Dm755 target/release/macro %{buildroot}%{_bindir}/macro
 %{_bindir}/macro
 
 %changelog
+* Tue Mar 24 2026 firexrwt <opensource@firexrwt.com> - 0.3.2-1
+- Mouse drag text selection
+- Horizontal mouse scroll (ScrollLeft/ScrollRight)
+- Auto-indent: new lines inherit leading whitespace of the current line
+- Auto-pairs: brackets and quotes inserted in pairs; skip-over and backspace-pair supported
+- Word completion fallback from buffer when LSP is unavailable or not yet initialised
+- LSP: accept any completion response regardless of request ID (fixes fast-typing drops)
+- All source comments translated to English
+- Added AGENTS.md and llms.txt
+
 * Thu Mar 06 2026 firexrwt <opensource@firexrwt.com> - 0.3.1-1
 - Incremental syntax highlighting: recompute only from the edited line
 - Fix: inserting and deleting lines now correctly updates the highlight cache

@@ -43,7 +43,7 @@ pub struct App {
     pub highlighter: Highlighter,
     pub status_msg: String,
     pub should_quit: bool,
-    /// Ожидаем второй Ctrl+Q для force-close несохранённого файла
+    /// Set after the first Ctrl+Q on an unsaved file; second Ctrl+Q force-closes.
     pub pending_force_close: bool,
     // ── Highlight cache (per file path) ──────────────────────────────────────
     pub highlight_caches: HashMap<PathBuf, HighlightCache>,
@@ -128,7 +128,7 @@ impl App {
         result
     }
 
-    // ── Главный цикл ─────────────────────────────────────────────────────────
+    // ── Main loop ────────────────────────────────────────────────────────────
 
     fn event_loop(
         &mut self,
@@ -155,7 +155,7 @@ impl App {
         Ok(())
     }
 
-    // ── Клавиатура ───────────────────────────────────────────────────────────
+    // ── Keyboard ─────────────────────────────────────────────────────────────
 
     fn handle_key(&mut self, key: event::KeyEvent) {
         use KeyCode::*;
@@ -170,30 +170,29 @@ impl App {
         let ctrl = key.modifiers.contains(Km::CONTROL);
         let shift = key.modifiers.contains(Km::SHIFT);
 
-        // Любая клавиша кроме Ctrl+Q сбрасывает ожидание force-close
+        // Any key other than Ctrl+Q cancels the pending force-close
         let is_ctrl_q = ctrl && !shift && matches!(key.code, Char('q'));
         if !is_ctrl_q && self.pending_force_close {
             self.pending_force_close = false;
             self.status_msg.clear();
         }
 
-        // ── Глобальные шорткаты ───────────────────────────────────────────────
+        // ── Global shortcuts ──────────────────────────────────────────────────
 
-        // Ctrl+Q — закрыть файл (или выйти если только дерево).
-        // Если файл несохранён: первый раз показывает предупреждение,
-        // второй Ctrl+Q подряд — закрывает без сохранения.
+        // Ctrl+Q: close active file or quit if only the tree is open.
+        // If the file has unsaved changes: first press warns, second press force-closes.
         if ctrl && !shift && matches!(key.code, Char('q')) {
             self.try_close_editor();
             return;
         }
 
-        // Ctrl+S — сохранить
+        // Ctrl+S: save current file
         if ctrl && !shift && matches!(key.code, Char('s')) {
             self.save_current();
             return;
         }
 
-        // Escape из редактора — сначала закрыть completion, потом перейти в дерево
+        // Escape in editor: close completion popup first, then switch focus to tree
         if matches!(key.code, Esc) && self.focus == Focus::Editor {
             if self.completion.is_some() {
                 self.completion = None;
@@ -203,7 +202,7 @@ impl App {
             return;
         }
 
-        // ── Делегируем по фокусу ─────────────────────────────────────────────
+        // ── Delegate by focus ────────────────────────────────────────────────
         match self.focus {
             Focus::Tree => self.handle_tree_key(key),
             Focus::Editor => self.handle_editor_key(key),
@@ -345,10 +344,31 @@ impl App {
             return;
         }
 
-        // ── Char input: insert + auto-trigger completion ──────────────────────
+        // ── Char input: insert + auto-pairs + auto-trigger completion ─────────
         if let Char(c) = key.code {
             if !ctrl && !key.modifiers.contains(Km::ALT) {
-                self.editors[idx].insert_char(c);
+                match c {
+                    '(' | '[' | '{' => {
+                        let close = match c { '(' => ')', '[' => ']', _ => '}' };
+                        self.editors[idx].insert_pair(c, close);
+                    }
+                    ')' | ']' | '}' => {
+                        // Skip over the closing bracket if it is already there
+                        if self.editors[idx].char_at_cursor() == Some(c) {
+                            self.editors[idx].move_right(false);
+                        } else {
+                            self.editors[idx].insert_char(c);
+                        }
+                    }
+                    '"' | '\'' | '`' => {
+                        if self.editors[idx].char_at_cursor() == Some(c) {
+                            self.editors[idx].move_right(false);
+                        } else {
+                            self.editors[idx].insert_pair(c, c);
+                        }
+                    }
+                    _ => self.editors[idx].insert_char(c),
+                }
                 if self.completion.is_some() {
                     self.update_completion_filter(idx);
                 } else if self.config.auto_complete {
@@ -380,7 +400,7 @@ impl App {
         }
     }
 
-    // ── Мышь ─────────────────────────────────────────────────────────────────
+    // ── Mouse ────────────────────────────────────────────────────────────────
 
     fn handle_mouse(&mut self, mouse: event::MouseEvent, size: ratatui::layout::Size) {
         let tree_w = if self.active_editor.is_some() {
@@ -394,8 +414,10 @@ impl App {
                 let x = mouse.column;
                 let y = mouse.row;
 
-                if self.active_editor.is_none() || x < tree_w {
-                    // Клик в дерево (y - 1: учитываем рамку сверху)
+                if self.creating_file.is_some() {
+                    // ignore clicks while popup is open
+                } else if self.active_editor.is_none() || x < tree_w {
+                    // Click in tree (y-1: account for top border)
                     self.focus = Focus::Tree;
                     let tree_y = (y as usize).saturating_sub(1);
                     if let Some(path) = self.file_tree.click_row(tree_y) {
@@ -403,9 +425,9 @@ impl App {
                     }
                 } else {
                     self.focus = Focus::Editor;
-                    // y=1 (после рамки) — это строка таббара
+                    // y=1 (after top border) is the tab bar row
                     if y == 1 && self.editors.len() > 1 {
-                        // Определяем по какой вкладке кликнули
+                        // Determine which tab was clicked
                         let rel_x = x.saturating_sub(tree_w + 1) as usize;
                         let mut offset = 0usize;
                         for (i, ed) in self.editors.iter().enumerate() {
@@ -414,14 +436,14 @@ impl App {
                                 self.active_editor = Some(i);
                                 break;
                             }
-                            offset += tab_w + 1; // +1 для разделителя │
+                            offset += tab_w + 1; // +1 for the │ divider
                         }
                     } else {
-                        // Клик в текст редактора
+                        // Click in editor text area
                         if let Some(idx) = self.active_editor {
                             let line_num_w: u16 = if self.config.line_numbers { 5 } else { 0 };
                             let editor_x = x.saturating_sub(tree_w + 1 + line_num_w) as usize;
-                            let editor_y = (y as usize).saturating_sub(2); // рамка + таббар
+                            let editor_y = (y as usize).saturating_sub(2); // border + tab bar
                             self.editors[idx].click(editor_x, editor_y);
                         }
                     }
@@ -450,14 +472,39 @@ impl App {
                 }
             },
 
+            MouseEventKind::ScrollLeft => {
+                if let Some(idx) = self.active_editor {
+                    self.editors[idx].scroll_left_cols(3);
+                }
+            }
+
+            MouseEventKind::ScrollRight => {
+                if let Some(idx) = self.active_editor {
+                    self.editors[idx].scroll_right_cols(3);
+                }
+            }
+
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if self.focus == Focus::Editor {
+                    if let Some(idx) = self.active_editor {
+                        let x = mouse.column;
+                        let y = mouse.row;
+                        let line_num_w: u16 = if self.config.line_numbers { 5 } else { 0 };
+                        let editor_x = x.saturating_sub(tree_w + 1 + line_num_w) as usize;
+                        let editor_y = (y as usize).saturating_sub(2);
+                        self.editors[idx].drag(editor_x, editor_y);
+                    }
+                }
+            }
+
             _ => {}
         }
     }
 
-    // ── Управление файлами ───────────────────────────────────────────────────
+    // ── File management ──────────────────────────────────────────────────────
 
     pub fn open_file(&mut self, path: &Path) -> Result<()> {
-        // Уже открыт?
+        // Already open?
         if let Some(idx) = self.editors.iter().position(|e| e.path == path) {
             self.active_editor = Some(idx);
             self.focus = Focus::Editor;
@@ -490,11 +537,11 @@ impl App {
         if let Some(idx) = self.active_editor {
             if self.editors[idx].modified {
                 if self.pending_force_close {
-                    // Второй Ctrl+Q — закрываем без сохранения
+                    // Second Ctrl+Q: force-close without saving
                     self.pending_force_close = false;
                     self.close_editor();
                 } else {
-                    // Первый Ctrl+Q — предупреждаем
+                    // First Ctrl+Q: warn the user
                     self.pending_force_close = true;
                     self.status_msg =
                         "Unsaved changes! Ctrl+S to save, Ctrl+Q again to discard".to_string();
@@ -559,25 +606,38 @@ impl App {
     /// Handle Tab key: request LSP completion if there's a word before the cursor,
     /// otherwise fall back to inserting spaces.
     /// Silently request LSP completion after a char is typed.
+    /// Falls back to word completion from the buffer when LSP is unavailable.
     /// Called automatically while typing if `config.auto_complete` is true.
     fn auto_trigger_completion(&mut self, idx: usize) {
         let ext_str = self.editors[idx].path.extension()
             .and_then(|e| e.to_str()).unwrap_or("").to_string();
-        let Some(lang_str) = language_id(&ext_str) else { return };
-        let lang = lang_str.to_string();
 
         let word_start = self.editors[idx].word_start_col();
         let cursor = self.editors[idx].cursor;
         if word_start == cursor.col { return; }
 
+        let Some(lang_str) = language_id(&ext_str) else {
+            // No LSP for this file type — use word completion from buffer
+            self.try_word_completion(idx);
+            return;
+        };
+        let lang = lang_str.to_string();
+
         if !self.lsp_clients.contains_key(&lang) {
             let root = self.file_tree.root.to_string_lossy().to_string();
             if let Some(client) = LspClient::start(&lang, &root) {
                 self.lsp_clients.insert(lang.clone(), client);
+            } else {
+                // LSP binary not found — fall back to word completion
+                self.try_word_completion(idx);
             }
             return;
         }
-        if !self.lsp_clients[&lang].initialized { return; }
+        if !self.lsp_clients[&lang].initialized {
+            // LSP still initialising — show word completion in the meantime
+            self.try_word_completion(idx);
+            return;
+        }
 
         let uri = file_uri(&self.editors[idx].path);
         let content = self.editors[idx].lines.join("\n");
@@ -591,6 +651,35 @@ impl App {
         client.notify_change(&uri, version, &content);
         let id = client.request_completion(&uri, cursor.line as u32, cursor.col as u32);
         self.pending_completion_id = Some(id);
+    }
+
+    /// Word completion from the current buffer — used when LSP is absent.
+    fn try_word_completion(&mut self, idx: usize) {
+        let word_start = self.editors[idx].word_start_col();
+        let cursor = self.editors[idx].cursor;
+        if word_start == cursor.col { return; }
+
+        let prefix = {
+            let line = &self.editors[idx].lines[cursor.line];
+            let start = line.char_indices().nth(word_start).map(|(b, _)| b).unwrap_or(0);
+            let end = line.char_indices().nth(cursor.col).map(|(b, _)| b).unwrap_or(line.len());
+            line[start..end].to_string()
+        };
+
+        let words = self.editors[idx].buffer_word_completions(&prefix);
+        if words.is_empty() { return; }
+
+        let items: Vec<CompletionItem> = words
+            .into_iter()
+            .map(|w| CompletionItem { label: w.clone(), insert_text: w })
+            .collect();
+        self.completion = Some(CompletionState {
+            filtered: items.clone(),
+            all_items: items,
+            selected: 0,
+            word_start,
+            trigger_line: cursor.line,
+        });
     }
 
     /// Recompute filtered list based on the word prefix at current cursor position.

@@ -20,7 +20,7 @@ pub struct Selection {
 }
 
 impl Selection {
-    /// Возвращает (start, end) в нормализованном порядке
+    /// Returns (start, end) in normalized (left-to-right) order.
     pub fn normalized(&self) -> (Pos, Pos) {
         let (a, b) = (self.anchor, self.cursor);
         if a.line < b.line || (a.line == b.line && a.col <= b.col) {
@@ -44,7 +44,7 @@ pub struct Editor {
 }
 
 impl Editor {
-    /// Создать редактор из готового набора строк (используется в тестах).
+    /// Create an editor from a pre-built list of lines (used in tests).
     #[cfg(test)]
     pub fn from_lines(path: PathBuf, lines: Vec<String>) -> Self {
         let lines = if lines.is_empty() { vec![String::new()] } else { lines };
@@ -96,7 +96,7 @@ impl Editor {
         self.lines.len()
     }
 
-    // ── Вспомогательные ──────────────────────────────────────────────────────
+    // ── Helpers ──────────────────────────────────────────────────────────────
 
     fn line_char_count(&self, line: usize) -> usize {
         self.lines[line].chars().count()
@@ -121,7 +121,7 @@ impl Editor {
         });
     }
 
-    // ── Ввод текста ──────────────────────────────────────────────────────────
+    // ── Text input ───────────────────────────────────────────────────────────
 
     pub fn insert_char(&mut self, c: char) {
         if self.selection.is_some() {
@@ -138,13 +138,19 @@ impl Editor {
         if self.selection.is_some() {
             self.delete_selection();
         }
+        // Carry the leading whitespace of the current line to the new line
+        let indent: String = self.lines[self.cursor.line]
+            .chars()
+            .take_while(|c| *c == ' ' || *c == '\t')
+            .collect();
         let byte = self.char_to_byte(self.cursor.line, self.cursor.col);
         let rest = self.lines[self.cursor.line][byte..].to_string();
         self.lines[self.cursor.line].truncate(byte);
-        self.lines.insert(self.cursor.line + 1, rest);
+        let indent_len = indent.chars().count();
+        self.lines.insert(self.cursor.line + 1, format!("{}{}", indent, rest));
         let dirty_line = self.cursor.line;
         self.cursor.line += 1;
-        self.cursor.col = 0;
+        self.cursor.col = indent_len;
         self.modified = true;
         self.mark_dirty(dirty_line);
     }
@@ -159,12 +165,31 @@ impl Editor {
         self.modified = true;
     }
 
-    // ── Удаление ─────────────────────────────────────────────────────────────
+    // ── Deletion ─────────────────────────────────────────────────────────────
 
     pub fn backspace(&mut self) {
         if self.selection.is_some() {
             self.delete_selection();
             return;
+        }
+        // Delete both brackets/quotes if cursor sits between a matching pair
+        if self.cursor.col > 0 {
+            let chars: Vec<char> = self.lines[self.cursor.line].chars().collect();
+            if let (Some(&p), Some(&n)) = (
+                chars.get(self.cursor.col - 1),
+                chars.get(self.cursor.col),
+            ) {
+                if is_matching_pair(p, n) {
+                    let byte_n = self.char_to_byte(self.cursor.line, self.cursor.col);
+                    self.lines[self.cursor.line].remove(byte_n);
+                    self.cursor.col -= 1;
+                    let byte_p = self.char_to_byte(self.cursor.line, self.cursor.col);
+                    self.lines[self.cursor.line].remove(byte_p);
+                    self.modified = true;
+                    self.mark_dirty(self.cursor.line);
+                    return;
+                }
+            }
         }
         if self.cursor.col > 0 {
             self.cursor.col -= 1;
@@ -202,7 +227,7 @@ impl Editor {
         }
     }
 
-    // ── Движение курсора ─────────────────────────────────────────────────────
+    // ── Cursor movement ──────────────────────────────────────────────────────
 
     pub fn move_left(&mut self, selecting: bool) {
         self.update_selection(selecting);
@@ -285,7 +310,7 @@ impl Editor {
         self.cursor.col = self.clamp_col(self.cursor.line, self.cursor.col);
     }
 
-    // ── Выделение ────────────────────────────────────────────────────────────
+    // ── Selection ────────────────────────────────────────────────────────────
 
     fn update_selection(&mut self, selecting: bool) {
         if selecting && self.selection.is_none() {
@@ -312,7 +337,7 @@ impl Editor {
         });
     }
 
-    // ── Буфер обмена ─────────────────────────────────────────────────────────
+    // ── Clipboard ────────────────────────────────────────────────────────────
 
     pub fn copy(&mut self) -> Option<String> {
         let sel = self.selection.as_ref()?;
@@ -344,7 +369,7 @@ impl Editor {
         }
     }
 
-    // ── Внутренние хелперы ───────────────────────────────────────────────────
+    // ── Internal helpers ─────────────────────────────────────────────────────
 
     fn extract_text(&self, start: Pos, end: Pos) -> String {
         if start.line == end.line {
@@ -388,7 +413,7 @@ impl Editor {
         self.mark_dirty(start.line);
     }
 
-    // ── Прокрутка ────────────────────────────────────────────────────────────
+    // ── Scrolling ────────────────────────────────────────────────────────────
 
     pub fn scroll_to_cursor(&mut self, view_lines: usize, view_cols: usize) {
         if self.cursor.line < self.scroll.line {
@@ -432,16 +457,94 @@ impl Editor {
         self.mark_dirty(self.cursor.line);
     }
 
-    /// Установить курсор по клику мышью (с учётом scroll)
+    /// Insert an opening bracket and its closing pair, placing the cursor between them.
+    pub fn insert_pair(&mut self, open: char, close: char) {
+        if self.selection.is_some() {
+            self.delete_selection();
+        }
+        let byte = self.char_to_byte(self.cursor.line, self.cursor.col);
+        // Insert close first so the open inserted at the same offset pushes it right
+        self.lines[self.cursor.line].insert(byte, close);
+        self.lines[self.cursor.line].insert(byte, open);
+        self.cursor.col += 1;
+        self.modified = true;
+        self.mark_dirty(self.cursor.line);
+    }
+
+    /// Returns the character immediately after the cursor (on the same line).
+    pub fn char_at_cursor(&self) -> Option<char> {
+        self.lines[self.cursor.line].chars().nth(self.cursor.col)
+    }
+
+    /// Collect words from the buffer that start with `prefix` (case-insensitive).
+    /// Used as a fallback when no LSP is available.
+    pub fn buffer_word_completions(&self, prefix: &str) -> Vec<String> {
+        if prefix.len() < 2 {
+            return Vec::new();
+        }
+        let prefix_lower = prefix.to_lowercase();
+        let mut seen = std::collections::HashSet::new();
+        let mut results = Vec::new();
+        for line in &self.lines {
+            for word in line.split(|c: char| !c.is_alphanumeric() && c != '_') {
+                if word.len() <= prefix.len() {
+                    continue;
+                }
+                if word.to_lowercase().starts_with(&prefix_lower)
+                    && seen.insert(word.to_string())
+                {
+                    results.push(word.to_string());
+                }
+            }
+        }
+        results.sort();
+        results.truncate(20);
+        results
+    }
+
+    /// Move cursor to a mouse click position (accounting for scroll offset).
     pub fn click(&mut self, text_x: usize, text_y: usize) {
         self.selection = None;
         let line = (self.scroll.line + text_y).min(self.lines.len().saturating_sub(1));
         let col = (self.scroll.col + text_x).min(self.line_char_count(line));
         self.cursor = Pos::new(line, col);
     }
+
+    /// Extend selection while the mouse button is held (drag).
+    /// The anchor is the position where the Down click occurred.
+    pub fn drag(&mut self, text_x: usize, text_y: usize) {
+        let anchor = match &self.selection {
+            Some(sel) => sel.anchor,
+            None => self.cursor,
+        };
+        let line = (self.scroll.line + text_y).min(self.lines.len().saturating_sub(1));
+        let col = (self.scroll.col + text_x).min(self.line_char_count(line));
+        self.cursor = Pos::new(line, col);
+        self.selection = Some(Selection { anchor, cursor: self.cursor });
+    }
+
+    /// Move cursor left by `n` columns (horizontal mouse scroll).
+    pub fn scroll_left_cols(&mut self, n: usize) {
+        self.selection = None;
+        self.cursor.col = self.cursor.col.saturating_sub(n);
+    }
+
+    /// Move cursor right by `n` columns (horizontal mouse scroll).
+    pub fn scroll_right_cols(&mut self, n: usize) {
+        self.selection = None;
+        let max_col = self.line_char_count(self.cursor.line);
+        self.cursor.col = (self.cursor.col + n).min(max_col);
+    }
 }
 
-// ── Тесты ────────────────────────────────────────────────────────────────────
+fn is_matching_pair(open: char, close: char) -> bool {
+    matches!(
+        (open, close),
+        ('(', ')') | ('[', ']') | ('{', '}') | ('"', '"') | ('\'', '\'') | ('`', '`')
+    )
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -456,7 +559,7 @@ mod tests {
         Editor::from_lines(PathBuf::from("test.txt"), lines)
     }
 
-    // ── Ввод ─────────────────────────────────────────────────────────────────
+    // ── Input ────────────────────────────────────────────────────────────────
 
     #[test]
     fn insert_chars() {
@@ -548,7 +651,7 @@ mod tests {
         assert_eq!(e.lines[0], "foobar");
     }
 
-    // ── Движение курсора ──────────────────────────────────────────────────────
+    // ── Cursor movement ───────────────────────────────────────────────────────
 
     #[test]
     fn move_right_wraps() {
@@ -594,7 +697,7 @@ mod tests {
         assert_eq!(e.cursor.line, 2);
     }
 
-    // ── Выделение ─────────────────────────────────────────────────────────────
+    // ── Selection ─────────────────────────────────────────────────────────────
 
     #[test]
     fn shift_right_creates_selection() {
@@ -615,7 +718,7 @@ mod tests {
         assert_eq!(end, Pos::new(2, 3));
     }
 
-    // ── Буфер обмена ──────────────────────────────────────────────────────────
+    // ── Clipboard ─────────────────────────────────────────────────────────────
 
     #[test]
     fn copy_single_line() {
@@ -623,7 +726,7 @@ mod tests {
         e.cursor.col = 0;
         for _ in 0..5 { e.move_right(true); }
         assert_eq!(e.copy().unwrap(), "hello");
-        assert!(e.selection.is_some()); // выделение сохраняется
+        assert!(e.selection.is_some()); // selection is preserved after copy
     }
 
     #[test]
@@ -694,7 +797,7 @@ mod tests {
         assert_eq!(e.dirty_from_line, Some(0));
     }
 
-    // ── Флаг modified ─────────────────────────────────────────────────────────
+    // ── Modified flag ─────────────────────────────────────────────────────────
 
     #[test]
     fn modified_set_on_edit() {
@@ -707,7 +810,7 @@ mod tests {
     #[test]
     fn modified_not_set_on_noop_backspace() {
         let mut e = ed("hello");
-        e.backspace(); // курсор на col=0, нечего удалять
+        e.backspace(); // cursor at col=0, nothing to delete
         assert!(!e.modified);
     }
 

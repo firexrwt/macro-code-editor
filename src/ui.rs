@@ -9,7 +9,7 @@ use ratatui::{
 use crate::app::{App, Focus};
 use crate::highlight::to_ratatui_color;
 
-// ── Точка входа рендеринга ────────────────────────────────────────────────────
+// ── Render entry point ────────────────────────────────────────────────────────
 
 pub fn render(f: &mut Frame, app: &mut App) {
     let area = f.area();
@@ -32,7 +32,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
     }
 }
 
-// ── Дерево файлов ─────────────────────────────────────────────────────────────
+// ── File tree ─────────────────────────────────────────────────────────────────
 
 fn tree_block<'a>(title: &'a str, focused: bool) -> Block<'a> {
     let style = if focused {
@@ -58,7 +58,7 @@ fn render_tree_fullscreen(f: &mut Frame, area: Rect, app: &mut App) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    // Нижняя строка — статус / подсказка
+    // Bottom row: status / hint
     let hint_area = Rect { y: inner.y + inner.height.saturating_sub(1), height: 1, ..inner };
     let list_area = Rect { height: inner.height.saturating_sub(1), ..inner };
 
@@ -124,7 +124,7 @@ fn draw_tree_list(f: &mut Frame, area: Rect, app: &mut App) {
     f.render_widget(List::new(items), area);
 }
 
-// ── Редактор ──────────────────────────────────────────────────────────────────
+// ── Editor ────────────────────────────────────────────────────────────────────
 
 fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
     let Some(idx) = app.active_editor else { return };
@@ -146,7 +146,7 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
         return;
     }
 
-    // ── Таббар ───────────────────────────────────────────────────────────────
+    // ── Tab bar ───────────────────────────────────────────────────────────────
     let tabs_area = Rect { height: 1, ..inner };
     let rest = Rect { y: inner.y + 1, height: inner.height - 1, ..inner };
 
@@ -168,7 +168,7 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
         .divider("│");
     f.render_widget(tabs, tabs_area);
 
-    // ── Разбиваем остаток на контент + статусбар ──────────────────────────────
+    // ── Split remaining area into content + status bar ────────────────────────
     let content_area = Rect { height: rest.height - 1, ..rest };
     let status_area = Rect {
         y: rest.y + rest.height - 1,
@@ -184,7 +184,7 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
     let view_lines = content_area.height as usize;
     let view_cols = text_w as usize;
 
-    // scroll_to_cursor требует мутабельный доступ к редактору
+    // scroll_to_cursor needs mutable access to the editor
     app.editors[idx].scroll_to_cursor(view_lines, view_cols);
 
     let scroll_line = app.editors[idx].scroll.line;
@@ -192,7 +192,7 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
     let cursor = app.editors[idx].cursor;
     let path = app.editors[idx].path.clone();
 
-    // Получаем строки для отображения
+    // Collect visible lines
     let visible_lines: Vec<String> = app.editors[idx]
         .lines
         .iter()
@@ -201,7 +201,7 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
         .cloned()
         .collect();
 
-    // Подсветка: инкрементальный пересчёт начиная с dirty_from_line.
+    // Highlighting: incremental recompute starting from dirty_from_line.
     // Note: dirty_from_line is taken before highlight_from. If highlight_from
     // were to panic, the marker would be lost and subsequent frames would not
     // re-highlight. In practice the only panic path is "no themes loaded" which
@@ -224,10 +224,10 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
     );
     let highlight_start = scroll_line;
 
-    // Получаем выделение для рендеринга
+    // Grab selection for rendering
     let selection = app.editors[idx].selection.clone();
 
-    // Рендерим строки
+    // Render lines
     for (vis_i, (line_str, hi_spans)) in visible_lines
         .iter()
         .zip(highlighted.spans.iter().skip(highlight_start))
@@ -235,7 +235,7 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
     {
         let abs_line = scroll_line + vis_i;
 
-        // Номер строки
+        // Line number gutter
         if app.config.line_numbers {
             let num_text = format!("{:>4} ", abs_line + 1);
             let num_style = if abs_line == cursor.line {
@@ -252,7 +252,7 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
             f.render_widget(Paragraph::new(num_text).style(num_style), num_area);
         }
 
-        // Текстовая строка
+        // Text line
         let line_area = Rect {
             y: text_area.y + vis_i as u16,
             height: 1,
@@ -270,7 +270,7 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
         f.render_widget(Paragraph::new(line_widget), line_area);
     }
 
-    // Позиция курсора в терминале
+    // Terminal cursor position
     let cur_x = text_area.x + cursor.col.saturating_sub(scroll_col) as u16;
     let cur_y = content_area.y + cursor.line.saturating_sub(scroll_line) as u16;
     if focused {
@@ -286,7 +286,7 @@ fn render_editor_panel(f: &mut Frame, area: Rect, app: &mut App) {
         render_completion_popup(f, app, cur_x, cur_y, area);
     }
 
-    // Статус-бар
+    // Status bar
     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("txt");
     let is_modified = app.editors[idx].modified;
     let status = format!(
@@ -399,7 +399,7 @@ fn render_completion_popup(f: &mut Frame, app: &App, cur_x: u16, cur_y: u16, scr
     f.render_widget(List::new(items), inner);
 }
 
-// ── Построение строки с подсветкой ───────────────────────────────────────────
+// ── Build a highlighted line ──────────────────────────────────────────────────
 
 fn build_highlighted_line<'a>(
     _raw: &str,

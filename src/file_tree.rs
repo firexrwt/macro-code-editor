@@ -45,7 +45,7 @@ impl FileTree {
         }
     }
 
-    /// Enter на выбранном элементе: раскрыть директорию или вернуть путь файла
+    /// Enter on the selected entry: toggle directory or return the file path.
     pub fn activate(&mut self) -> Option<PathBuf> {
         let entry = self.entries.get(self.selected)?.clone();
         if entry.is_dir {
@@ -57,7 +57,7 @@ impl FileTree {
         }
     }
 
-    /// Клик по строке (y — позиция в видимой области дерева)
+    /// Click on row y (relative to the visible tree area).
     pub fn click_row(&mut self, y: usize) -> Option<PathBuf> {
         let idx = self.scroll + y;
         if idx >= self.entries.len() {
@@ -89,7 +89,7 @@ impl FileTree {
         collect_dir(&self.root, 0, &mut self.entries);
     }
 
-    /// Перестроить с сохранением состояния раскрытых папок
+    /// Rebuild the entry list, preserving expanded-directory state.
     fn rebuild_keeping_state(&mut self) {
         let expanded: Vec<PathBuf> = self
             .entries
@@ -122,7 +122,7 @@ fn collect_dir(dir: &std::path::Path, depth: usize, out: &mut Vec<TreeEntry>) {
     for child in children {
         let name = child.file_name().to_string_lossy().to_string();
         if name.starts_with('.') && depth > 0 {
-            continue; // скрываем dotfiles в поддиректориях
+            continue; // hide dotfiles inside subdirectories
         }
         let path = child.path();
         let is_dir = child.file_type().map(|t| t.is_dir()).unwrap_or(false);

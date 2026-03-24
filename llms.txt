@@ -1,0 +1,46 @@
+# macro-editor
+
+> A fast terminal text editor written in Rust — a `micro` replacement with integrated file tree, syntax highlighting, and LSP support.
+
+## Project
+
+- Binary: `macro`
+- Language: Rust (edition 2021)
+- TUI: ratatui + crossterm
+- Syntax highlighting: syntect (pure Rust, `default-fancy` feature, no C deps)
+- Config: `~/.config/macro/config.toml` (TOML, serde)
+- Packaging: RPM spec at `packaging/macro-editor.spec` (Fedora COPR)
+
+## Key features
+
+- Integrated file tree (left panel, toggleable)
+- Incremental syntax highlighting (recomputes only from the edited line)
+- Multi-tab editing (up to 8 open files)
+- Mouse support: click, scroll, drag selection
+- LSP autocompletion (stdio JSON-RPC, auto-triggered while typing)
+- Keyboard selection (Shift+arrows, Ctrl+A), clipboard (Ctrl+C/X/V)
+- Line numbers, configurable tab size and theme
+
+## Source layout
+
+- `src/main.rs` — entry point, CLI args
+- `src/app.rs` — event loop, keyboard + mouse, LSP glue
+- `src/editor.rs` — text buffer + 29 unit tests
+- `src/ui.rs` — ratatui rendering
+- `src/highlight.rs` — syntect wrapper, HighlightCache
+- `src/file_tree.rs` — file tree widget
+- `src/config.rs` — config
+- `src/lsp.rs` — LSP client
+
+## Build
+
+```sh
+cargo build --release
+cargo test
+```
+
+## Links
+
+- Repository: https://github.com/firexrwt/macro-code-editor
+- Agent guide: AGENTS.md
+- Contributing: CONTRIBUTING.md

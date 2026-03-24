@@ -148,14 +148,14 @@ impl Highlighter {
         cache.highlight_states.truncate(lines.len());
     }
 
-    /// Доступные темы для конфига
+    /// Available theme names (for config reference).
     #[allow(dead_code)]
     pub fn theme_names(&self) -> Vec<&str> {
         self.ts.themes.keys().map(|s| s.as_str()).collect()
     }
 }
 
-/// Конвертация syntect RGB → ratatui Color
+/// Convert a syntect RGB color to a ratatui Color.
 pub fn to_ratatui_color(c: syntect::highlighting::Color) -> ratatui::style::Color {
     ratatui::style::Color::Rgb(c.r, c.g, c.b)
 }

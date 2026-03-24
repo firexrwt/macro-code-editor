@@ -34,6 +34,7 @@ pub fn language_id(ext: &str) -> Option<&'static str> {
         "ts" | "mts" => Some("typescript"),
         "tsx" => Some("typescriptreact"),
         "go" => Some("go"),
+        "cs" => Some("csharp"),
         _ => None,
     }
 }
@@ -47,6 +48,7 @@ fn server_command(lang: &str) -> Option<(&'static str, &'static [&'static str])>
             Some(("typescript-language-server", &["--stdio"]))
         }
         "go" => Some(("gopls", &[])),
+        "csharp" => Some(("csharp-ls", &[])),
         _ => None,
     }
 }
@@ -180,8 +182,9 @@ impl LspClient {
     }
 
     /// Poll pending messages from the server.
-    /// Returns completion items if `pending_id` response arrived.
-    pub fn poll(&mut self, pending_id: Option<i64>) -> Vec<CompletionItem> {
+    /// Accepts any completion response — not pinned to a specific request ID
+    /// so that fast typing does not silently drop results.
+    pub fn poll(&mut self, _pending_id: Option<i64>) -> Vec<CompletionItem> {
         let mut completions = Vec::new();
         while let Ok(msg) = self.rx.try_recv() {
             // Detect initialize response
@@ -196,15 +199,12 @@ impl LspClient {
                 }
                 continue;
             }
-            // Check for completion response
-            if let Some(pid) = pending_id {
-                let matches = msg.get("id")
-                    .and_then(|id| id.as_i64())
-                    .map(|id| id == pid)
-                    .unwrap_or(false);
-                if matches {
-                    if let Some(result) = msg.get("result") {
-                        completions = parse_completions(result);
+            // Accept any response carrying completion items
+            if msg.get("id").is_some() {
+                if let Some(result) = msg.get("result") {
+                    let items = parse_completions(result);
+                    if !items.is_empty() {
+                        completions = items;
                     }
                 }
             }
